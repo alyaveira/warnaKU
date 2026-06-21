@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mataku — Kenali Warnamu</title>
+
+  <!--
+    FIX: Tambah preconnect untuk Google Fonts.
+    Tanpa ini, browser harus resolve DNS + buka koneksi HTTPS ke fonts.googleapis.com
+    dan fonts.gstatic.com saat mulai parse <link> font di bawah — blocking render.
+    Dengan preconnect, koneksi sudah siap jauh sebelum font dibutuhkan.
+  -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sora:wght@300;400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
+
+  <div class="container">
+    <header>
+      <div class="logo">Mataku</div>
+      <div class="badge">Beta</div>
+    </header>
+
+    <section class="hero">
+      <h1>Kenali Warna<br/><span>di Sekitarmu</span></h1>
+      <p>Alat bantu deteksi warna untuk sahabat dengan buta warna hijau. Arahkan kamera atau unggah foto.</p>
+    </section>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="dot dot-red"></div>
+        <div class="dot dot-yellow"></div>
+        <div class="dot dot-green"></div>
+        <span class="card-title">Deteksi Warna Real-time</span>
+      </div>
+
+      <div class="camera-wrap" id="cam-wrap">
+        <!-- video feed -->
+        <video id="video" autoplay playsinline muted></video>
+        <!-- canvas overlay -->
+        <canvas id="canvas-output"></canvas>
+
+        <!-- DIV focus box — draggable & resizable -->
+        <div id="focus-box">
+          <!-- 8 resize handles -->
+          <div class="fb-handle fb-nw" data-dir="nw"></div>
+          <div class="fb-handle fb-n"  data-dir="n"></div>
+          <div class="fb-handle fb-ne" data-dir="ne"></div>
+          <div class="fb-handle fb-e"  data-dir="e"></div>
+          <div class="fb-handle fb-se" data-dir="se"></div>
+          <div class="fb-handle fb-s"  data-dir="s"></div>
+          <div class="fb-handle fb-sw" data-dir="sw"></div>
+          <div class="fb-handle fb-w"  data-dir="w"></div>
+          <div class="fb-label" id="fb-label"></div>
+        </div>
+
+        <div class="cam-placeholder" id="placeholder">
+          <div class="cam-icon">📷</div>
+          <p>Kamera belum aktif</p>
+        </div>
+
+        <div class="scan-line"></div>
+        <div class="corner corner-tl"></div>
+        <div class="corner corner-tr"></div>
+        <div class="corner corner-bl"></div>
+        <div class="corner corner-br"></div>
+      </div>
+
+      <div class="focus-hint" id="focus-hint">✋ Drag kotak untuk pindah &nbsp;·&nbsp; Tarik tepi/sudut untuk resize</div>
+
+      <div class="status-row">
+        <div class="status-dot" id="status-dot"></div>
+        <span class="status-text" id="status-text">Model belum dimuat</span>
+      </div>
+
+      <div class="result-area" id="result-area" style="display:none;">
+        <div class="result-main">
+          <div class="color-swatch" id="color-swatch"></div>
+          <div class="result-info">
+            <div class="result-name" id="result-name">—</div>
+            <div class="result-sub" id="result-sub"></div>
+          </div>
+          <div class="conf-badge" id="conf-badge">0%</div>
+        </div>
+        <div class="confidence-bar">
+          <div class="confidence-fill" id="conf-fill"></div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button class="btn btn-primary" id="btn-cam">
+          <span id="btn-icon">📷</span>
+          <span id="btn-label">Aktifkan Kamera</span>
+        </button>
+        <label class="btn btn-secondary" for="file-input">
+          <span>🖼️</span> Unggah Foto
+        </label>
+        <input type="file" id="file-input" accept="image/*" />
+      </div>
+    </div>
+
+    <footer>Dibuat dengan <span>♥</span> untuk sahabat buta warna &mdash; Mataku 2025</footer>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <!--
+    NOTE tentang CDN:
+    Saat ini pakai @latest yang selalu ambil versi terbaru — bagus untuk development,
+    tapi untuk production sebaiknya pin ke versi spesifik agar:
+    - Dapat cache CDN yang stabil (tidak re-download tiap versi baru)
+    - Menghindari breaking change tak terduga
+
+    Contoh pin versi:
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8.5/dist/teachablemachine-image.min.js"></script>
+
+    Cek versi yang kompatibel dengan modelmu di:
+    https://teachablemachine.withgoogle.com/
+  -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
