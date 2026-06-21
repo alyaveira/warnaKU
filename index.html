@@ -78,7 +78,7 @@
 
       <div class="status-row">
         <div class="status-dot" id="status-dot"></div>
-        <span class="status-text" id="status-text">Model belum dimuat</span>
+        <span class="status-text" id="status-text" aria-live="polite">Model belum dimuat</span>
       </div>
 
       <div class="result-area" id="result-area" style="display:none;">
@@ -96,14 +96,17 @@
       </div>
 
       <div class="controls">
-        <button class="btn btn-primary" id="btn-cam">
-          <span id="btn-icon">📷</span>
+        <button class="btn btn-primary" id="btn-cam" aria-label="Aktifkan atau matikan kamera">
+          <span id="btn-icon" aria-hidden="true">📷</span>
           <span id="btn-label">Aktifkan Kamera</span>
         </button>
         <label class="btn btn-secondary" for="file-input">
-          <span>🖼️</span> Unggah Foto
+          <span aria-hidden="true">🖼️</span> Unggah Foto
         </label>
-        <input type="file" id="file-input" accept="image/*" />
+        <input type="file" id="file-input" accept="image/*" aria-label="Unggah foto untuk deteksi warna" />
+        <button class="btn btn-secondary btn-remove" id="btn-remove" aria-label="Hapus foto yang diunggah" style="display:none;">
+          <span aria-hidden="true">🗑️</span> Hapus Gambar
+        </button>
       </div>
     </div>
 
@@ -126,8 +129,8 @@
     Cek versi yang kompatibel dengan modelmu di:
     https://teachablemachine.withgoogle.com/
   -->
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8.5/dist/teachablemachine-image.min.js"></script>
   <script src="script.js"></script>
 </body>
 </html>
