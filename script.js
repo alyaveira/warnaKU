@@ -1,19 +1,4 @@
-/* ==========================================================================
-   MATAKU — script.js
-   ==========================================================================
-   ISI FILE INI SEBELUMNYA KOSONG. Semua logika di bawah dibangun dari nol:
-   - load model Teachable Machine
-   - aktivasi & switch kamera
-   - drag & resize focus box (mouse + touch)
-   - upload foto
-   - loop prediksi warna pada area focus box
-   - state UI (loading, error, hasil, confidence rendah)
 
-   ⚠️ WAJIB DIISI SEBELUM DIPAKAI:
-   Ganti MODEL_URL di bawah dengan URL model Teachable Machine kamu sendiri.
-   Dapatkan dari https://teachablemachine.withgoogle.com/ setelah training,
-   klik "Export Model" → "Upload (shareable link)" → copy link-nya.
-   ========================================================================== */
 
 const CONFIG = {
   // TODO: ganti dengan link model Teachable Machine kamu sendiri
