@@ -47,6 +47,7 @@ const el = {
   btnSwitchCam: document.getElementById("btn-switch-cam"),
   modelLoadingOverlay: document.getElementById("model-loading-overlay"),
   btnSaveResult: document.getElementById("btn-save-result"),
+  btnCapture: document.getElementById("btn-capture"),
   historyArea: document.getElementById("history-area"),
   historyList: document.getElementById("history-list"),
   btnClearHistory: document.getElementById("btn-clear-history"),
@@ -638,6 +639,11 @@ el.btnClearHistory.addEventListener("click", clearHistory);
 
 el.btnSaveResult.addEventListener("click", saveResultAsImage);
 
+el.btnCapture.addEventListener("click", () => {
+  if (btnBusy) return;
+  captureSnapshot();
+});
+
 el.themeToggle.addEventListener("click", toggleTheme);
 initTheme();
 
@@ -729,6 +735,85 @@ function saveResultAsImage() {
   link.href = out.toDataURL("image/png");
   link.click();
   showToast("Hasil deteksi berhasil diunduh.");
+}
+
+/* --------------------------------------------------------------------------
+   13. CAPTURE SNAPSHOT
+   -------------------------------------------------------------------------- */
+function captureSnapshot() {
+  if (!state.camMode && !state.previewMode) {
+    showToast("Aktifkan kamera atau unggah foto terlebih dahulu.", "error");
+    return;
+  }
+
+  // Buat canvas output dengan dimensi tampilan saat ini
+  const out = document.createElement("canvas");
+  out.width = el.canvas.width;
+  out.height = el.canvas.height;
+  const octx = out.getContext("2d");
+
+  // Gambar frame/foto yang sedang ditampilkan
+  if (state.camMode) {
+    octx.drawImage(el.video, 0, 0, out.width, out.height);
+  } else if (state.previewMode && state.uploadedImage) {
+    const img = state.uploadedImage;
+    const imgRatio = img.width / img.height;
+    const canvasRatio = out.width / out.height;
+    let drawW, drawH, dx, dy;
+    if (imgRatio > canvasRatio) {
+      drawH = out.height; drawW = out.height * imgRatio;
+      dx = (out.width - drawW) / 2; dy = 0;
+    } else {
+      drawW = out.width; drawH = out.width / imgRatio;
+      dx = 0; dy = (out.height - drawH) / 2;
+    }
+    octx.drawImage(img, dx, dy, drawW, drawH);
+  }
+
+  // Gambar bounding box fokus dengan label warna (kalau ada hasil deteksi)
+  const { x, y, w, h } = state.box;
+  const colorName = el.resultName.textContent.replace(/[^\w\s]/gu, "").trim();
+  const borderColor = el.focusBox.style.borderColor || "#4a7aff";
+  octx.strokeStyle = borderColor;
+  octx.lineWidth = 2;
+  octx.strokeRect(x, y, w, h);
+
+  if (colorName && colorName !== "—") {
+    octx.font = "bold 13px Plus Jakarta Sans, sans-serif";
+    const label = el.focusLabel.textContent || colorName;
+    const padding = 8;
+    const textW = octx.measureText(label).width;
+    const labelX = x;
+    const labelY = y + h + 2;
+    octx.fillStyle = borderColor + "ee";
+    if (octx.roundRect) {
+      octx.beginPath();
+      octx.roundRect(labelX, labelY, textW + padding * 2, 22, 4);
+      octx.fill();
+    } else {
+      octx.fillRect(labelX, labelY, textW + padding * 2, 22);
+    }
+    octx.fillStyle = "#fff";
+    octx.fillText(label, labelX + padding, labelY + 15);
+  }
+
+  // Watermark kecil
+  octx.font = "11px Sora, sans-serif";
+  octx.fillStyle = "rgba(255,255,255,0.6)";
+  octx.fillText("Mataku", out.width - 56, out.height - 10);
+
+  // Efek flash di UI
+  const flash = document.createElement("div");
+  flash.className = "capture-flash";
+  el.camWrap.appendChild(flash);
+  flash.addEventListener("animationend", () => flash.remove());
+
+  // Download
+  const link = document.createElement("a");
+  link.download = `mataku-capture-${Date.now()}.png`;
+  link.href = out.toDataURL("image/png");
+  link.click();
+  showToast("📸 Foto berhasil disimpan!");
 }
 
 function wrapText(c, text, x, y, maxWidth, lineHeight) {
