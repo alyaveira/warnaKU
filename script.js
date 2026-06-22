@@ -1,18 +1,26 @@
-
-
 const CONFIG = {
-  // TODO: ganti dengan link model Teachable Machine kamu sendiri
   MODEL_URL: "https://teachablemachine.withgoogle.com/models/nhq2UTl2O/",
   PREDICT_INTERVAL_MS: 300,     // jeda antar prediksi, biar tidak membebani CPU
   LOW_CONFIDENCE_THRESHOLD: 0.6, // di bawah ini dianggap "kurang yakin"
   MIN_FOCUS_BOX_SIZE: 48,        // ukuran minimum focus box (px)
   MAX_FILE_SIZE_MB: 8,
   TOAST_DURATION_MS: 3200,
+  MAX_HISTORY: 8,
+  THEME_STORAGE_KEY: "mataku-theme",
 };
 
-/* --------------------------------------------------------------------------
-   1. DOM REFERENCES
-   -------------------------------------------------------------------------- */
+/* Mapping nama warna (label dari model) → hex, ikon, dan tips spesifik*/
+const colorData = {
+  "Merah":  { hex: "#e63946", icon: "🔴", tips: "Mungkin tampak coklat gelap pada buta warna merah-hijau." },
+  "Orange": { hex: "#fb5607", icon: "🟠", tips: "Bisa tampak mirip coklat atau kekuningan." },
+  "Kuning": { hex: "#ffbe0b", icon: "🟡", tips: "Bisa tampak lebih pucat pada beberapa tipe buta warna." },
+  "Hijau":  { hex: "#2d6a4f", icon: "🟢", tips: "Warna yang sering membingungkan penderita deuteranopia." },
+  "Biru":   { hex: "#74b9ff", icon: "🔵", tips: "Terdeteksi normal oleh penderita buta warna merah-hijau." },
+  "Ungu":   { hex: "#8338ec", icon: "🟣", tips: "Masih bisa dibedakan oleh buta warna merah-hijau." },
+};
+const DEFAULT_COLOR_INFO = { hex: "#5b8aff", icon: "🎨", tips: "" };
+
+/*1. DOM REFERENCES*/
 const el = {
   camWrap: document.getElementById("cam-wrap"),
   video: document.getElementById("video"),
@@ -34,13 +42,19 @@ const el = {
   fileInput: document.getElementById("file-input"),
   btnRemove: document.getElementById("btn-remove"),
   toast: document.getElementById("toast"),
+  themeToggle: document.getElementById("theme-toggle"),
+  themeIcon: document.getElementById("theme-icon"),
+  btnSwitchCam: document.getElementById("btn-switch-cam"),
+  modelLoadingOverlay: document.getElementById("model-loading-overlay"),
+  btnSaveResult: document.getElementById("btn-save-result"),
+  historyArea: document.getElementById("history-area"),
+  historyList: document.getElementById("history-list"),
+  btnClearHistory: document.getElementById("btn-clear-history"),
 };
 
 const ctx = el.canvas.getContext("2d", { willReadFrequently: true });
 
-/* --------------------------------------------------------------------------
-   2. STATE
-   -------------------------------------------------------------------------- */
+/*  2. STATE */
 const state = {
   model: null,
   modelLoading: false,
@@ -53,11 +67,11 @@ const state = {
   uploadedImage: null,
   box: { x: 60, y: 60, w: 160, h: 120 },
   drag: null, // { mode: 'move'|'resize', dir, startX, startY, startBox }
+  history: [],       // { name, hex, icon, confidence, time }
+  lastHistoryName: null,
 };
 
-/* --------------------------------------------------------------------------
-   3. UTIL: TOAST & STATUS
-   -------------------------------------------------------------------------- */
+/* 3. UTIL: TOAST & STATUS*/
 let toastTimer = null;
 function showToast(message, type = "info") {
   el.toast.textContent = message;
@@ -76,9 +90,7 @@ function setStatus(text, mode = "idle") {
   if (mode === "loading") el.statusDot.classList.add("loading");
 }
 
-/* --------------------------------------------------------------------------
-   4. MODEL LOADING
-   -------------------------------------------------------------------------- */
+/* 4. MODEL LOADING */
 async function loadModel() {
   if (state.modelReady || state.modelLoading) return state.model;
 
@@ -96,6 +108,7 @@ async function loadModel() {
 
   state.modelLoading = true;
   setStatus("Memuat model AI…", "loading");
+  el.modelLoadingOverlay.style.display = "flex";
 
   try {
     const modelURL = CONFIG.MODEL_URL + "model.json";
@@ -111,12 +124,11 @@ async function loadModel() {
     return null;
   } finally {
     state.modelLoading = false;
+    el.modelLoadingOverlay.style.display = "none";
   }
 }
 
-/* --------------------------------------------------------------------------
-   5. KAMERA
-   -------------------------------------------------------------------------- */
+/*5. KAMERA */
 function isSecureContextOk() {
   return window.isSecureContext || location.hostname === "localhost";
 }
@@ -191,6 +203,9 @@ function stopCamera() {
   setStatus("Kamera dimatikan", "idle");
   setBtnState("camera-off");
   el.resultArea.style.display = "none";
+  el.focusLabel.style.display = "none";
+  el.focusBox.style.borderColor = "";
+  state.lastHistoryName = null;
 }
 
 async function switchFacingMode() {
@@ -224,16 +239,35 @@ function handleFileUpload(file) {
     return;
   }
 
+  // FIX: foto dari HP sering punya rotasi EXIF (kamera dipegang miring).
+  // createImageBitmap dengan imageOrientation:'from-image' otomatis
+  // membaca EXIF dan memutar gambar dengan benar. Browser lama yang tidak
+  // mendukung opsi ini akan fallback ke cara lama (FileReader + <img>),
+  // yang bisa saja tampil miring — itu batas dukungan browser, bukan bug.
+  if (window.createImageBitmap) {
+    createImageBitmap(file, { imageOrientation: "from-image" })
+      .then(async (bitmap) => {
+        state.uploadedImage = bitmap;
+        stopCamera();
+        const model = await loadModel();
+        if (!model) return;
+        enterPreviewMode();
+      })
+      .catch(() => loadImageLegacyWay(file));
+  } else {
+    loadImageLegacyWay(file);
+  }
+}
+
+function loadImageLegacyWay(file) {
   const reader = new FileReader();
   reader.onload = (e) => {
     const img = new Image();
     img.onload = async () => {
       state.uploadedImage = img;
       stopCamera();
-
       const model = await loadModel();
       if (!model) return;
-
       enterPreviewMode();
     };
     img.onerror = () => showToast("Gagal membuka file gambar. Coba file lain.", "error");
@@ -260,6 +294,9 @@ function exitPreviewMode() {
   state.previewMode = false;
   state.uploadedImage = null;
   el.btnRemove.style.display = "none";
+  el.focusLabel.style.display = "none";
+  el.focusBox.style.borderColor = "";
+  state.lastHistoryName = null;
 }
 
 function drawUploadedImage() {
@@ -447,21 +484,83 @@ async function runPrediction() {
 
 function showPrediction(top) {
   if (!top) return;
+  const name = top.className;
   const confidence = top.probability;
+  const info = colorData[name] || DEFAULT_COLOR_INFO;
+  const pct = Math.round(confidence * 100);
 
+  // Result card
   el.resultArea.style.display = "block";
   el.resultArea.setAttribute("aria-live", "polite");
-  el.resultName.textContent = top.className;
-  el.confBadge.textContent = `${Math.round(confidence * 100)}%`;
+  el.resultName.textContent = `${info.icon} ${name}`;
+  el.resultName.style.color = info.hex;
+  el.colorSwatch.style.background = info.hex;
+  el.colorSwatch.style.boxShadow = `0 0 16px ${info.hex}33`;
+  el.confBadge.textContent = `${pct}%`;
   el.confFill.style.transform = `scaleX(${confidence})`;
 
   if (confidence < CONFIG.LOW_CONFIDENCE_THRESHOLD) {
-    el.resultSub.textContent = "Keyakinan rendah — coba arahkan kotak fokus lebih dekat ke warna objek.";
+    el.resultSub.innerHTML = `Keyakinan rendah — coba dekatkan kotak fokus ke warna objek.<br>${info.tips}`;
     el.confBadge.style.color = "var(--accent2)";
   } else {
-    el.resultSub.textContent = "Hasil deteksi warna pada area kotak fokus.";
+    el.resultSub.innerHTML = `Penglihatan mata normal: <strong>${name}</strong>.<br>${info.tips}`;
     el.confBadge.style.color = "var(--green-ok)";
   }
+
+  // Focus box border & label ikut warna yang terdeteksi
+  el.focusBox.style.borderColor = info.hex;
+  document.querySelectorAll(".fb-handle").forEach((h) => (h.style.borderColor = info.hex));
+  el.focusLabel.style.display = "block";
+  el.focusLabel.style.background = info.hex + "ee";
+  el.focusLabel.textContent = `${info.icon} ${name}  ${pct}%`;
+
+  addToHistory(name, info, confidence);
+}
+
+/* --------------------------------------------------------------------------
+   RIWAYAT DETEKSI
+   -------------------------------------------------------------------------- */
+function addToHistory(name, info, confidence) {
+  // Hanya catat kalau warna berubah dari deteksi sebelumnya, supaya riwayat
+  // tidak penuh entri sama berulang-ulang setiap 300ms.
+  if (state.lastHistoryName === name) return;
+  state.lastHistoryName = name;
+
+  state.history.unshift({
+    name,
+    hex: info.hex,
+    icon: info.icon,
+    confidence,
+    time: new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }),
+  });
+  state.history = state.history.slice(0, CONFIG.MAX_HISTORY);
+  renderHistory();
+}
+
+function renderHistory() {
+  if (state.history.length === 0) {
+    el.historyArea.style.display = "none";
+    return;
+  }
+  el.historyArea.style.display = "block";
+  el.historyList.innerHTML = "";
+  state.history.forEach((item) => {
+    const chip = document.createElement("div");
+    chip.className = "history-chip";
+    chip.innerHTML = `
+      <div class="history-swatch" style="background:${item.hex}"></div>
+      <div class="history-label">${item.icon} ${item.name}</div>
+      <div class="history-label">${item.time}</div>
+    `;
+    el.historyList.appendChild(chip);
+  });
+}
+
+function clearHistory() {
+  state.history = [];
+  state.lastHistoryName = null;
+  renderHistory();
+  showToast("Riwayat deteksi dibersihkan.");
 }
 
 /* --------------------------------------------------------------------------
@@ -530,6 +629,18 @@ el.btnRemove.addEventListener("click", () => {
 
 setupFocusBoxHandlers();
 
+el.btnSwitchCam.addEventListener("click", () => {
+  if (btnBusy) return;
+  switchFacingMode();
+});
+
+el.btnClearHistory.addEventListener("click", clearHistory);
+
+el.btnSaveResult.addEventListener("click", saveResultAsImage);
+
+el.themeToggle.addEventListener("click", toggleTheme);
+initTheme();
+
 // Guard: kalau tab di-hide (user pindah app), hentikan prediksi sementara
 // biar tidak buang resource & baterai HP.
 document.addEventListener("visibilitychange", () => {
@@ -544,5 +655,97 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("beforeunload", () => {
   if (state.stream) state.stream.getTracks().forEach((t) => t.stop());
 });
+
+/* --------------------------------------------------------------------------
+   11. DARK MODE
+   -------------------------------------------------------------------------- */
+function initTheme() {
+  const saved = localStorage.getItem(CONFIG.THEME_STORAGE_KEY);
+  const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const theme = saved || (prefersDark ? "dark" : "light");
+  applyTheme(theme);
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+  el.themeIcon.textContent = theme === "dark" ? "☀️" : "🌙";
+  localStorage.setItem(CONFIG.THEME_STORAGE_KEY, theme);
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute("data-theme") || "light";
+  applyTheme(current === "dark" ? "light" : "dark");
+}
+
+/* --------------------------------------------------------------------------
+   12. SIMPAN HASIL DETEKSI SEBAGAI GAMBAR
+   -------------------------------------------------------------------------- */
+function saveResultAsImage() {
+  const name = el.resultName.textContent.trim();
+  if (!name || name === "—") {
+    showToast("Belum ada hasil deteksi untuk disimpan.", "error");
+    return;
+  }
+
+  const out = document.createElement("canvas");
+  out.width = 480;
+  out.height = 220;
+  const octx = out.getContext("2d");
+
+  // background card
+  octx.fillStyle = "#ffffff";
+  octx.fillRect(0, 0, out.width, out.height);
+
+  // swatch besar
+  const hex = el.colorSwatch.style.background || "#5b8aff";
+  octx.fillStyle = hex;
+  if (octx.roundRect) {
+    octx.beginPath();
+    octx.roundRect(24, 24, 100, 100, 16);
+    octx.fill();
+  } else {
+    octx.fillRect(24, 24, 100, 100); // fallback untuk browser tanpa roundRect
+  }
+
+  // teks
+  octx.fillStyle = "#1a1d2e";
+  octx.font = "700 26px sans-serif";
+  octx.fillText(name, 144, 60);
+
+  octx.fillStyle = "#7c85a8";
+  octx.font = "400 16px sans-serif";
+  wrapText(octx, el.resultSub.textContent.trim(), 144, 92, 320, 22);
+
+  octx.fillStyle = "#4a7aff";
+  octx.font = "700 20px sans-serif";
+  octx.fillText(el.confBadge.textContent.trim(), 144, 180);
+
+  octx.fillStyle = "#bcc4e0";
+  octx.font = "400 13px sans-serif";
+  octx.fillText("Mataku — Deteksi Warna", 24, 205);
+
+  const link = document.createElement("a");
+  link.download = `mataku-hasil-${Date.now()}.png`;
+  link.href = out.toDataURL("image/png");
+  link.click();
+  showToast("Hasil deteksi berhasil diunduh.");
+}
+
+function wrapText(c, text, x, y, maxWidth, lineHeight) {
+  const words = text.split(" ");
+  let line = "";
+  let curY = y;
+  for (let i = 0; i < words.length; i++) {
+    const testLine = line + words[i] + " ";
+    if (c.measureText(testLine).width > maxWidth && i > 0) {
+      c.fillText(line, x, curY);
+      line = words[i] + " ";
+      curY += lineHeight;
+    } else {
+      line = testLine;
+    }
+  }
+  c.fillText(line, x, curY);
+}
 
 setStatus("Model belum dimuat", "idle");

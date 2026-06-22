@@ -26,7 +26,12 @@
   <div class="container">
     <header>
       <div class="logo">Mataku</div>
-      <div class="badge">Beta</div>
+      <div class="header-actions">
+        <button class="theme-toggle" id="theme-toggle" aria-label="Ganti tampilan terang/gelap" title="Ganti tema">
+          <span id="theme-icon" aria-hidden="true">🌙</span>
+        </button>
+        <div class="badge">Beta</div>
+      </div>
     </header>
 
     <section class="hero">
@@ -47,6 +52,17 @@
         <video id="video" autoplay playsinline muted></video>
         <!-- canvas overlay -->
         <canvas id="canvas-output"></canvas>
+
+        <!-- Switch kamera depan/belakang -->
+        <button class="cam-switch-btn" id="btn-switch-cam" aria-label="Ganti kamera depan/belakang" title="Ganti kamera">
+          🔄
+        </button>
+
+        <!-- Overlay loading model -->
+        <div class="model-loading-overlay" id="model-loading-overlay" style="display:none;">
+          <div class="spinner"></div>
+          <p>Memuat model AI…</p>
+        </div>
 
         <!-- DIV focus box — draggable & resizable -->
         <div id="focus-box">
@@ -93,6 +109,17 @@
         <div class="confidence-bar">
           <div class="confidence-fill" id="conf-fill"></div>
         </div>
+        <button class="btn-save-result" id="btn-save-result" aria-label="Simpan hasil deteksi sebagai gambar">
+          💾 Simpan Hasil
+        </button>
+      </div>
+
+      <div class="history-area" id="history-area" style="display:none;">
+        <div class="history-header">
+          <span class="history-title">Riwayat Deteksi</span>
+          <button class="history-clear" id="btn-clear-history" aria-label="Hapus semua riwayat">Bersihkan</button>
+        </div>
+        <div class="history-list" id="history-list"></div>
       </div>
 
       <div class="controls">
