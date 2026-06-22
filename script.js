@@ -1,5 +1,5 @@
 const CONFIG = {
-  MODEL_URL: "https://teachablemachine.withgoogle.com/models/nhq2UTl2O/",
+  MODEL_URL: "https://teachablemachine.withgoogle.com/models/nhq2UTl2O/", //ini ganti settingan yg 200,16,0.0005
   PREDICT_INTERVAL_MS: 300,     // jeda antar prediksi, biar tidak membebani CPU
   LOW_CONFIDENCE_THRESHOLD: 0.6, // di bawah ini dianggap "kurang yakin"
   MIN_FOCUS_BOX_SIZE: 48,        // ukuran minimum focus box (px)
