@@ -7,6 +7,11 @@ const CONFIG = {
   TOAST_DURATION_MS: 3200,
   MAX_HISTORY: 8,
   THEME_STORAGE_KEY: "mataku-theme",
+  // --- Hybrid: fallback RGB/HSV saat model AI kurang yakin ---
+  RGB_FALLBACK_ENABLED: true,
+  RGB_FALLBACK_THRESHOLD: 0.6,   // di bawah confidence ini, pakai hasil analisis warna piksel
+  GRAY_SATURATION_THRESHOLD: 0.16, // saturasi di bawah ini dianggap warna netral/abu-abu -> "Default"
+  DARK_VALUE_THRESHOLD: 0.12,      // value (kecerahan) di bawah ini dianggap gelap/hitam -> "Default"
 };
 
 const colorData = {
@@ -18,6 +23,85 @@ const colorData = {
   "Ungu":   { hex: "#8338ec", icon: "🟣", tips: "Masih bisa dibedakan oleh buta warna merah-hijau." },
 };
 const DEFAULT_COLOR_INFO = { hex: "#5b8aff", icon: "🎨", tips: "" };
+
+/* 1b. UTIL WARNA — untuk fallback klasifikasi berbasis RGB/HSV */
+function hexToRgb(hex) {
+  const m = hex.replace("#", "").match(/.{2}/g);
+  return { r: parseInt(m[0], 16), g: parseInt(m[1], 16), b: parseInt(m[2], 16) };
+}
+
+function rgbToHsv(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const d = max - min;
+  let h = 0;
+  if (d !== 0) {
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+  }
+  const s = max === 0 ? 0 : d / max;
+  const v = max;
+  return { h, s, v };
+}
+
+function hueDistance(h1, h2) {
+  const diff = Math.abs(h1 - h2);
+  return Math.min(diff, 360 - diff);
+}
+
+// Referensi pusat warna tiap kelas, dibangun sekali dari colorData (hex sama dengan yang dipakai UI)
+const REFERENCE_COLORS = Object.entries(colorData).map(([name, info]) => {
+  const rgb = hexToRgb(info.hex);
+  return { name, info, hsv: rgbToHsv(rgb.r, rgb.g, rgb.b) };
+});
+
+// Ambil rata-rata warna piksel di dalam canvas crop (area kotak fokus)
+function getAverageColor(cropCanvas) {
+  const cctx = cropCanvas.getContext("2d");
+  const { width: w, height: h } = cropCanvas;
+  const data = cctx.getImageData(0, 0, w, h).data;
+  let r = 0, g = 0, b = 0, n = 0;
+  const stride = 4 * 2; // sampling tiap 2 piksel untuk performa
+  for (let i = 0; i < data.length; i += stride) {
+    r += data[i]; g += data[i + 1]; b += data[i + 2];
+    n++;
+  }
+  if (n === 0) return { r: 0, g: 0, b: 0 };
+  return { r: r / n, g: g / n, b: b / n };
+}
+
+// Klasifikasi warna berdasarkan jarak HSV ke pusat warna referensi
+function classifyByColor(rgb) {
+  const { h, s, v } = rgbToHsv(rgb.r, rgb.g, rgb.b);
+
+  // Warna netral (abu-abu/hitam/putih pucat) -> Default, hue tidak relevan di sini
+  if (s < CONFIG.GRAY_SATURATION_THRESHOLD || v < CONFIG.DARK_VALUE_THRESHOLD) {
+    const distNorm = Math.max(0, 1 - Math.abs(s - 0.05) - Math.abs(v - 0.5) * 0.3);
+    return { name: "Default", info: DEFAULT_COLOR_INFO, confidence: Math.min(0.95, Math.max(0.5, distNorm)) };
+  }
+
+  let best = null;
+  let bestDist = Infinity;
+  REFERENCE_COLORS.forEach((ref) => {
+    const dHue = hueDistance(h, ref.hsv.h);
+    const dSat = Math.abs(s - ref.hsv.s) * 100;
+    const dVal = Math.abs(v - ref.hsv.v) * 100;
+    const dist = dHue * 1.0 + dSat * 0.5 + dVal * 0.3;
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = ref;
+    }
+  });
+
+  // Ubah jarak jadi pseudo-confidence (0-1), makin kecil jarak makin tinggi
+  const MAX_EXPECTED_DIST = 90;
+  const confidence = Math.max(0.5, Math.min(0.97, 1 - bestDist / MAX_EXPECTED_DIST));
+
+  return { name: best.name, info: best.info, confidence };
+}
 
 /* 1. DOM REFERENCES */
 const el = {
@@ -346,6 +430,15 @@ function renderFocusBox() {
   el.focusBox.style.top = `${y}px`;
   el.focusBox.style.width = `${w}px`;
   el.focusBox.style.height = `${h}px`;
+
+  // Jika tidak ada cukup ruang di bawah kotak untuk label, pindahkan label ke atas kotak
+  const bounds = el.camWrap.getBoundingClientRect();
+  const LABEL_SPACE = 40; // perkiraan tinggi label + jarak
+  if (y + h + LABEL_SPACE > bounds.height) {
+    el.focusBox.classList.add("label-flip");
+  } else {
+    el.focusBox.classList.remove("label-flip");
+  }
 }
 
 function clampBox(box, bounds) {
@@ -476,18 +569,31 @@ async function runPrediction() {
   try {
     const predictions = await state.model.predict(cropCanvas);
     predictions.sort((a, b) => b.probability - a.probability);
-    showPrediction(predictions[0]);
+    const top = predictions[0];
+
+    if (CONFIG.RGB_FALLBACK_ENABLED && top && top.probability < CONFIG.RGB_FALLBACK_THRESHOLD) {
+      // Model AI kurang yakin -> pakai analisis warna piksel langsung sebagai fallback
+      const avgColor = getAverageColor(cropCanvas);
+      const fallback = classifyByColor(avgColor);
+      showPrediction(
+        { className: fallback.name, probability: fallback.confidence },
+        { source: "rgb", info: fallback.info }
+      );
+    } else {
+      showPrediction({ className: top.className, probability: top.probability }, { source: "ai" });
+    }
   } catch (err) {
     console.error("Gagal melakukan prediksi:", err);
   }
 }
 
-function showPrediction(top) {
+function showPrediction(top, meta = { source: "ai" }) {
   if (!top) return;
   const name = top.className;
   const confidence = top.probability;
-  const info = colorData[name] || DEFAULT_COLOR_INFO;
+  const info = meta.info || colorData[name] || DEFAULT_COLOR_INFO;
   const pct = Math.round(confidence * 100);
+  const isRgbFallback = meta.source === "rgb";
 
   el.resultArea.style.display = "block";
   el.resultArea.setAttribute("aria-live", "polite");
@@ -495,10 +601,13 @@ function showPrediction(top) {
   el.resultName.style.color = info.hex;
   el.colorSwatch.style.background = info.hex;
   el.colorSwatch.style.boxShadow = `0 0 16px ${info.hex}33`;
-  el.confBadge.textContent = `${pct}%`;
+  el.confBadge.textContent = isRgbFallback ? `≈${pct}%` : `${pct}%`;
   el.confFill.style.transform = `scaleX(${confidence})`;
 
-  if (confidence < CONFIG.LOW_CONFIDENCE_THRESHOLD) {
+  if (isRgbFallback) {
+    el.resultSub.innerHTML = `Model AI kurang yakin — diperkirakan dari analisis warna piksel: <strong>${name}</strong>.<br>${info.tips}`;
+    el.confBadge.style.color = "var(--accent2)";
+  } else if (confidence < CONFIG.LOW_CONFIDENCE_THRESHOLD) {
     el.resultSub.innerHTML = `Keyakinan rendah — coba dekatkan kotak fokus ke warna objek.<br>${info.tips}`;
     el.confBadge.style.color = "var(--accent2)";
   } else {
@@ -510,7 +619,9 @@ function showPrediction(top) {
   document.querySelectorAll(".fb-handle").forEach((h) => (h.style.borderColor = info.hex));
   el.focusLabel.style.display = "block";
   el.focusLabel.style.background = info.hex + "ee";
-  el.focusLabel.textContent = `${info.icon} ${name}  ${pct}%`;
+  el.focusLabel.textContent = isRgbFallback
+    ? `${info.icon} ${name}  ≈${pct}%`
+    : `${info.icon} ${name}  ${pct}%`;
 
   addToHistory(name, info, confidence);
 }
